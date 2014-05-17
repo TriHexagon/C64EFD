@@ -1,22 +1,25 @@
 # Makefile for C64 emulated floppy drive
 
 PROJ_NAME = C64EFD
-MCU = atmega32
+MCU = atmega16
 F_CPU = 16000000UL
 FORMAT = ihex
 OUT_DIR = bin
 SRC_DIR = src
+INC_DIR = inc
 OBJ_DIR = obj
 
 CC = avr-gcc
 OBJCOPY = avr-objcopy
 LD = avr-ld
+AVRDUDE = avrdude
+SIMULAVR = simulavr
+GDB = avr-gdb
 
 SRC = $(shell find $(SRC_DIR) -name *.c)
 OBJ = $(addprefix $(OBJ_DIR)/, $(notdir $(SRC:.c=.o)))
-INC = inc
 
-CFLAGS = -Wall -std=c99 -Os
+CFLAGS = -Wall -std=c99 -Os -g
 LDFLAGS = 
 
 all: $(OUT_DIR)/$(PROJ_NAME).hex
@@ -28,10 +31,19 @@ $(OUT_DIR)/$(PROJ_NAME).hex: $(OUT_DIR)/$(PROJ_NAME).elf
 $(OUT_DIR)/$(PROJ_NAME).elf: $(OBJ)
 	$(LD) $(OBJ) -o $@ $(LDFLAGS)
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/$(notdir %.c) $(shell find $(INC) -name *.h)
-	$(CC) -c $< -o $@ $(CFLAGS) -mmcu=$(MCU) -DF_CPU=$(F_CPU) -DDEBUG -I$(INC)
+$(OBJ_DIR)/%.o: $(SRC_DIR)/$(notdir %.c) $(shell find $(INC_DIR) -name *.h)
+	$(CC) -c $< -o $@ $(CFLAGS) -mmcu=$(MCU) -DF_CPU=$(F_CPU) -DDEBUG -I$(INC_DIR)
 
 clean:
-	rm -rf *.o
-	rm $(OUT_DIR)/$(PROJ_NAME).elf
-	rm $(OUT_DIR)/$(PROJ_NAME).hex
+	rm -rf $(OBJ)
+	rm -rf $(OUT_DIR)/$(PROJ_NAME).elf
+	rm -rf $(OUT_DIR)/$(PROJ_NAME).hex
+
+program:
+	$(AVRDUDE) -p $(MCU) -c avrispmkII -P usb -U flash:w:$(OUT_DIR)/$(PROJ_NAME).hex
+
+sim:
+	$(SIMULAVR) -g -d $(MCU) -p 1212 -c 16000000
+
+gdb:
+	$(GDB) $(OUT_DIR)/$(PROJ_NAME).elf

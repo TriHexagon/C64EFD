@@ -12,11 +12,14 @@ OBJ_DIR = obj
 CC = avr-gcc
 OBJCOPY = avr-objcopy
 LD = avr-ld
+AVRDUDE = avrdude
+SIMULAVR = simulavr
+GDB = avr-gdb
 
 SRC = $(shell find $(SRC_DIR) -name *.c)
 OBJ = $(addprefix $(OBJ_DIR)/, $(notdir $(SRC:.c=.o)))
 
-CFLAGS = -Wall -std=c99 -Os
+CFLAGS = -Wall -std=c99 -Os -g
 LDFLAGS = 
 
 all: $(OUT_DIR)/$(PROJ_NAME).hex
@@ -32,6 +35,15 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/$(notdir %.c) $(shell find $(INC_DIR) -name *.h)
 	$(CC) -c $< -o $@ $(CFLAGS) -mmcu=$(MCU) -DF_CPU=$(F_CPU) -DDEBUG -I$(INC_DIR)
 
 clean:
-	rm -rf *.o
-	rm $(OUT_DIR)/$(PROJ_NAME).elf
-	rm $(OUT_DIR)/$(PROJ_NAME).hex
+	rm -rf $(OBJ)
+	rm -rf $(OUT_DIR)/$(PROJ_NAME).elf
+	rm -rf $(OUT_DIR)/$(PROJ_NAME).hex
+
+program:
+	$(AVRDUDE) -p $(MCU) -c avrispmkII -P usb -U flash:w:$(OUT_DIR)/$(PROJ_NAME).hex
+
+sim:
+	$(SIMULAVR) -g -d $(MCU) -p 1212 -c 16000000
+
+gdb:
+	$(GDB) $(OUT_DIR)/$(PROJ_NAME).elf
