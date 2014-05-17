@@ -2,6 +2,7 @@
 
 #include "timer.h"
 #include "sd.h"
+#include "debug.h"
 
 int main(void)
 {

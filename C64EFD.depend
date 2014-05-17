@@ -1,0 +1,35 @@
+# depslib dependency file v1.0
+1400331535 source:/home/christopher/Dokumente/AVR/C64EFD/main.c
+	<avr/io.h>
+	"timer.h"
+	"sd.h"
+
+1400331535 /home/christopher/Dokumente/AVR/C64EFD/timer.h
+	"types.h"
+
+1400331535 /home/christopher/Dokumente/AVR/C64EFD/types.h
+	<stdint.h>
+	<stddef.h>
+	<stdbool.h>
+
+1400331535 /home/christopher/Dokumente/AVR/C64EFD/sd.h
+	"types.h"
+
+1400331535 source:/home/christopher/Dokumente/AVR/C64EFD/sd.c
+	"sd.h"
+	<avr/io.h>
+
+1400331535 source:/home/christopher/Dokumente/AVR/C64EFD/debug.c
+	"debug.h"
+	"types.h"
+	<avr/io.h>
+	<util/setbaud.h>
+
+1400331535 /home/christopher/Dokumente/AVR/C64EFD/debug.h
+	"types.h"
+
+1400331535 source:/home/christopher/Dokumente/AVR/C64EFD/timer.c
+	"timer.h"
+	<avr/io.h>
+	<avr/interrupt.h>
+

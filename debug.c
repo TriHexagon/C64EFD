@@ -33,7 +33,7 @@ void debug_putData(const void* data, size_t size)
 
     for (size_t i=0;i<size;i++)
     {
-        debug_putc(*ptr)
+        debug_putc(*ptr);
         ptr++;
     }
 }
