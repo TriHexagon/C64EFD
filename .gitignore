@@ -3,3 +3,6 @@
 *.elf
 *.hex
 *.o
+
+# ~ files
+*~
