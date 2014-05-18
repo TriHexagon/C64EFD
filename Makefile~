@@ -1,7 +1,7 @@
 # Makefile for C64 emulated floppy drive
 
 PROJ_NAME = C64EFD
-MCU = atmega16
+MCU = atmega32
 F_CPU = 16000000UL
 FORMAT = ihex
 OUT_DIR = bin
@@ -19,8 +19,8 @@ GDB = avr-gdb
 SRC = $(shell find $(SRC_DIR) -name *.c)
 OBJ = $(addprefix $(OBJ_DIR)/, $(notdir $(SRC:.c=.o)))
 
-CFLAGS = -Wall -std=c99 -Os -g
-LDFLAGS = 
+CFLAGS = -Wall -pedantic -pedantic-errors -std=c99 -Os -g
+LDFLAGS = -lm
 
 all: $(OUT_DIR)/$(PROJ_NAME).hex
 	@echo "done"
@@ -29,7 +29,7 @@ $(OUT_DIR)/$(PROJ_NAME).hex: $(OUT_DIR)/$(PROJ_NAME).elf
 	$(OBJCOPY) -O $(FORMAT) $^ $@
 
 $(OUT_DIR)/$(PROJ_NAME).elf: $(OBJ)
-	$(LD) $(OBJ) -o $@ $(LDFLAGS)
+	$(CC) $(OBJ) /usr/lib/avr/lib/avr5/crtm32.o -o $@ $(LDFLAGS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/$(notdir %.c) $(shell find $(INC_DIR) -name *.h)
 	$(CC) -c $< -o $@ $(CFLAGS) -mmcu=$(MCU) -DF_CPU=$(F_CPU) -DDEBUG -I$(INC_DIR)

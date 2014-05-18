@@ -1,4 +1,5 @@
 #include <avr/io.h>
+#include <avr/interrupt.h>
 
 #include "timer.h"
 #include "sd.h"
@@ -10,6 +11,7 @@ int main(void)
 	PORTB = 0x00;
 	
     //init
+    sei();
     timer_init();
     debug_init();
     timer_delayMs(100); //waiting for safety
