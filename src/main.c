@@ -7,9 +7,6 @@
 
 int main(void)
 {
-	DDRB = 0xFF;
-	PORTB = 0x00;
-	
     //init
     sei();
     timer_init();

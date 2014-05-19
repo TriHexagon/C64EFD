@@ -8,11 +8,11 @@
 #define SD_PIN PINB
 #define SD_PIN_POWER 0
 #define SD_PIN_CS 4
-#define SD_PIN_DI 6
+#define SD_PIN_DI 5
 #define SD_PIN_CLK 7
 
-//dummy byte is inverted (0xFF->0x00)
-#define DUMMY_BYTE 0x00
+//dummy byte (high level)
+#define DUMMY_BYTE 0xFF
 
 const u8 CMD0[] = { 0x40, 0x00, 0x00, 0x00, 0x00, 0x95 };
 
@@ -30,13 +30,13 @@ static void sd_powerOff(void)
 
 static void sd_select(void)
 {
-    //cs circuit is inverted ->  cs low (clear bit)
+    //CS low (clear bit)
     SD_PORT &= ~(1<<SD_PIN_CS);
 }
 
 static void sd_deselect(void)
 {
-    //cs circuit is inverted -> cs high (set bit)
+    //CS high (set bit)
     SD_PORT |= (1<<SD_PIN_CS);
 }
 
@@ -85,13 +85,13 @@ u8 sd_goIdle(void)
 result_t sd_init(void)
 {
     //init io
-    SD_DDR |= (1<<SD_PIN_POWER) | (1<<SD_PIN_CS) | (1<<SD_PIN_CLK); //set pins to output
+    SD_DDR |= (1<<SD_PIN_POWER) | (1<<SD_PIN_CS) | (1<<SD_PIN_CLK) | (1<<SD_PIN_DI); //set pins to output
     sd_powerOff();
     sd_deselect();
 
     //init SPI
-    //enable SPI, master mode, clk polarity (alling -> rising edge), 64 prescaler (250 kHz at 16 MHz), clk phase (sample on falling edge), data order (MSB first)
-    SPCR = (1<<SPE) | (1<<MSTR) | (1<<CPOL) | (1<<SPR1);
+    //enable SPI, master mode, clk polarity CPOL=0 (rising edge -> falling edge), 64 prescaler (250 kHz at 16 MHz), clk phase CPHA=0 (sample on leading edge), data order (MSB first)
+    SPCR = (1<<SPE) | (1<<MSTR) | (0<<CPOL) | (1<<SPR1);
 
     //power on sd card and enable SPI mode
     sd_powerOn();

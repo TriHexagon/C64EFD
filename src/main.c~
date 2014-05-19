@@ -20,7 +20,7 @@ int main(void)
 
     while(1)
     {
-        if (sd_init() == SUCCESS)
+        if (sd_init() == FAILED)
             break;
     }
 
