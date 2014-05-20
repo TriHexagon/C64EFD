@@ -1,7 +1,9 @@
 #include "sd.h"
 
 #include <avr/io.h>
+#include <stdlib.h>
 #include "timer.h"
+#include "debug.h"
 
 #define SD_DDR DDRB
 #define SD_PORT PORTB
@@ -13,6 +15,22 @@
 
 //dummy byte (high level)
 #define DUMMY_BYTE 0xFF
+
+typedef union sd_Response1
+{
+    u8 data;
+        
+    struct
+    {
+        unsigned int inIdle : 1;
+        unsigned int eraseReset : 1;
+        unsigned int illegalCmd : 1;
+        unsigned int crcError : 1;
+        unsigned int eraseSequError : 1;
+        unsigned int addressError : 1;
+        unsigned int paramError : 1;
+    };
+} sd_Response1;
 
 const u8 CMD0[] = { 0x40, 0x00, 0x00, 0x00, 0x00, 0x95 };
 
@@ -52,8 +70,10 @@ void sd_sendByte(u8 data)
     sd_deselect();
 }
 
-u8 sd_goIdle(void)
+result_t sd_goIdle(sd_Response1* resp)
 {
+    u8 response[9];
+
     sd_select();
     
     //send CMD0
@@ -65,21 +85,50 @@ u8 sd_goIdle(void)
             ;
     }
 
-    //send dummy byte (NCR wait time)
-    SPDR = DUMMY_BYTE;
+    //send dummy bytes ( (1 up to 8) +1 * 8 clock cycles = NCR wait time + response byte)
+    for (u8 i=0; i<9; i++)
+    {
+        SPDR = DUMMY_BYTE;
         
-    while ( !(SPSR & (1<<SPIF)) )
-            ;
+        while ( !(SPSR & (1<<SPIF)) )
+                ;
 
-    //read response; it is reqired to send dummy byte (high) to generate clk signal
-    SPDR = DUMMY_BYTE;
-        
-    while ( !(SPSR & (1<<SPIF)) )
-            ;
+        response[i] = SPDR; //save incoming data
+    }
 
     sd_deselect();
+    
+    //try to get R1
+    for (u8 i=0; i<sizeof(response); i++)
+    {
+        if (response[i] != 0xFF) //DO pin has pull-up, if one low bit -> start bit of response
+        {
+            //get startbit position in data byte
+            u8 startPos = 0;
+            for (u8 u=7; u!=255; u--) //overflow u8 -> 0-1=255
+            {
+                if ( (response[i] & (1<<u)) == 0x00 )
+                {
+                    startPos = u;
+                    break;
+                }
+            }
 
-    return SPDR;
+            // if startbit = 7 then response[i] is the whole response byte
+            if (startPos == 7)
+            {
+                resp->data = response[i];
+                return SUCCESS;
+            }
+
+            //else: get last bits from next byte
+            resp->data = (response[i]<<(7-startPos)) | (response[i+1]>>(startPos+1)); //TODO: check out of range (i+1) access
+            return SUCCESS;
+        }
+    }
+    
+
+    return FAILED;
 }
 
 result_t sd_init(void)
@@ -96,8 +145,21 @@ result_t sd_init(void)
     //power on sd card and enable SPI mode
     sd_powerOn();
     timer_delayMs(250);
-    //if ( (SD_PIN & (1<<SD_PIN_DI)) == 0x00) return FAILED;
-    sd_goIdle();
+    
+    sd_Response1 resp;
+    if (sd_goIdle(&resp) == FAILED) //send CMD0 -> go idle state and enable SPI mode
+    {
+        sd_powerOff();
+        return FAILED;
+    }
+
+    if (resp.inIdle)
+        debug_puts("sd is in idle");
+    char str[8];
+    utoa(resp.data, str, 10);
+    debug_puts(str);
+
+    //sd voltage check
     
     return SUCCESS;
 }

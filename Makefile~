@@ -29,7 +29,7 @@ $(OUT_DIR)/$(PROJ_NAME).hex: $(OUT_DIR)/$(PROJ_NAME).elf
 	$(OBJCOPY) -O $(FORMAT) $^ $@
 
 $(OUT_DIR)/$(PROJ_NAME).elf: $(OBJ)
-	$(CC) $(OBJ) /usr/lib/avr/lib/avr5/crtm32.o -o $@ $(LDFLAGS)
+	$(CC) $(OBJ) -o $@ $(LDFLAGS) -mmcu=$(MCU)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/$(notdir %.c) $(shell find $(INC_DIR) -name *.h)
 	$(CC) -c $< -o $@ $(CFLAGS) -mmcu=$(MCU) -DF_CPU=$(F_CPU) -DDEBUG -I$(INC_DIR)

@@ -19,7 +19,7 @@ GDB = avr-gdb
 SRC = $(shell find $(SRC_DIR) -name *.c)
 OBJ = $(addprefix $(OBJ_DIR)/, $(notdir $(SRC:.c=.o)))
 
-CFLAGS = -Wall -pedantic -pedantic-errors -std=c99 -Os -g
+CFLAGS = -Wall -pedantic -pedantic-errors -std=c11 -Os -g
 LDFLAGS = -lm
 
 all: $(OUT_DIR)/$(PROJ_NAME).hex

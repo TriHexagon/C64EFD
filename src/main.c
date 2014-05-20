@@ -17,15 +17,15 @@ int main(void)
 
     while(1)
     {
-        if (sd_init() == FAILED)
+        if (sd_init() == SUCCESS)
             break;
+        timer_delayMs(1000);
     }
 
     while (1)
 	{
-		PORTB = ~PORTB;
-		timer_delayMs(2000);
-		debug_puts("2 seconds");
+		debug_puts("sd is detected!");
+        timer_delayMs(2000);
 	}
 
     return 0;
