@@ -1,5 +1,6 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <stdlib.h>
 
 #include "timer.h"
 #include "sd.h"
@@ -12,8 +13,6 @@ int main(void)
     timer_init();
     debug_init();
     timer_delayMs(100); //waiting for safety
-
-    debug_puts("Ready!");
 
     while(1)
     {

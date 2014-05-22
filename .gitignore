@@ -6,3 +6,6 @@
 
 # ~ files
 *~
+
+# geany
+*.geany

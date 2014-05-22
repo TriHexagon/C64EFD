@@ -15,6 +15,23 @@
 
 //dummy byte (high level)
 #define DUMMY_BYTE 0xFF
+//wait time in bytes
+#define NCR_MAX_WAIT_TIME 8
+
+//SD Registers
+typedef union sd_OCR
+{
+	u8 data[4]; //32 bit width
+	
+	struct
+	{
+		unsigned int reserved0 : 15;
+		unsigned int v27_36 : 9; //2.7 - 3.6 Volt
+		unsigned int reserved1 : 6;
+		unsigned int capacityStatus : 1; //CCS (only valid when power up status bit is set)
+		unsigned int powerUpStatus : 1; //bit is set to low if card has not finished power up routine (busy)
+	};
+} sd_OCR;
 
 typedef union sd_Response1
 {
@@ -29,10 +46,24 @@ typedef union sd_Response1
         unsigned int eraseSequError : 1;
         unsigned int addressError : 1;
         unsigned int paramError : 1;
+        unsigned int startBit : 1;
     };
 } sd_Response1;
 
-const u8 CMD0[] = { 0x40, 0x00, 0x00, 0x00, 0x00, 0x95 };
+typedef union sd_Response3
+{
+	u8 data[5]; //40 bit width
+	
+	struct
+	{
+		sd_OCR ocr;
+		sd_Response1 r1;
+	};
+} sd_Response3;
+
+const u8 CMD0[]   = { 0x40, 0x00, 0x00, 0x00, 0x00, 0x95 };
+const u8 CMD55[]  = { 0x77, 0x00, 0x00, 0xAA, 0xAA, 0x01 };
+const u8 ACMD41[] = { 0x69, 0x00, 0xFF, 0x80, 0x00, 0x01 };
 
 static void sd_powerOn(void)
 {
@@ -70,65 +101,140 @@ void sd_sendByte(u8 data)
     sd_deselect();
 }
 
-result_t sd_goIdle(sd_Response1* resp)
+void spi_sendData(const void* inData, size_t size)
 {
-    u8 response[9];
-
-    sd_select();
-    
-    //send CMD0
-    for (u8 i=0; i<sizeof(CMD0); i++)
+	const u8* data = inData;
+	for (size_t i=0; i<size; i++)
     {
-        SPDR = CMD0[i];
+        SPDR = data[i];
         
         while ( !(SPSR & (1<<SPIF)) )
             ;
     }
+}
 
-    //send dummy bytes ( (1 up to 8) +1 * 8 clock cycles = NCR wait time + response byte)
-    for (u8 i=0; i<9; i++)
-    {
-        SPDR = DUMMY_BYTE;
-        
-        while ( !(SPSR & (1<<SPIF)) )
-                ;
-
-        response[i] = SPDR; //save incoming data
-    }
-
-    sd_deselect();
-    
-    //try to get R1
-    for (u8 i=0; i<sizeof(response); i++)
-    {
-        if (response[i] != 0xFF) //DO pin has pull-up, if one low bit -> start bit of response
-        {
-            //get startbit position in data byte
-            u8 startPos = 0;
+result_t sd_getResponse(void* outData, size_t size)
+{
+	u8* data = outData;
+	
+	u8 dataByte;
+	u8 nextByte;
+	for (u8 i=0; i<NCR_MAX_WAIT_TIME+1; i++)
+	{
+		SPDR = DUMMY_BYTE; //send dummy byte
+		while ( !(SPSR & (1<<SPIF)) ) //wait for communication end
+			;
+		
+		dataByte = SPDR;
+		
+		if (dataByte != 0xFF) //response begin
+		{
+			//get next data byte
+			SPDR = DUMMY_BYTE; //send dummy byte
+			
+			//get start bit position
+			u8 startPos = 0;
             for (u8 u=7; u!=255; u--) //overflow u8 -> 0-1=255
             {
-                if ( (response[i] & (1<<u)) == 0x00 )
+                if ( (dataByte & (1<<u)) == 0x00 )
                 {
                     startPos = u;
                     break;
                 }
             }
+			
+			while ( !(SPSR & (1<<SPIF)) ) //wait for communication end
+				;
+		
+			nextByte = SPDR;
+			
+			if (startPos == 7) //bit communication fits byte communication
+			{
+				data[size-1] = dataByte;
+				if (size == 1)
+					return SUCCESS;
+					
+				data[size-2] = nextByte;
+				if (size == 2)
+					return SUCCESS;
+				
+				//simple byte read in
+				for (u8 u=size-3; u!=255; u--)
+				{
+					SPDR = DUMMY_BYTE; //send dummy byte
+					while ( !(SPSR & (1<<SPIF)) ) //wait for communication end
+						;
+		
+					data[u] = SPDR;
+				}
+				
+				return SUCCESS;
+			}
+			
+			//assemble both data bytes
+			data[size-1] = (dataByte<<(7-startPos)) | (nextByte>>(startPos+1));
+			//get last bytes and assemble
+			for (u8 u=size-2; u!=255; u--)
+			{
+				dataByte = nextByte;
+				
+				//get next byte
+				SPDR = DUMMY_BYTE; //send dummy byte
+				while ( !(SPSR & (1<<SPIF)) ) //wait for communication end
+					;
+		
+				nextByte = SPDR;
+				
+				//assemble
+				data[u] = (dataByte<<(7-startPos)) | (nextByte>>(startPos+1));
+			}
+			
+			return SUCCESS;
+		}
+	}
+	
+	return FAILED;
+}
 
-            // if startbit = 7 then response[i] is the whole response byte
-            if (startPos == 7)
-            {
-                resp->data = response[i];
-                return SUCCESS;
-            }
-
-            //else: get last bits from next byte
-            resp->data = (response[i]<<(7-startPos)) | (response[i+1]>>(startPos+1)); //TODO: check out of range (i+1) access
-            return SUCCESS;
-        }
-    }
+result_t sd_goIdle(sd_Response1* resp)
+{
+    sd_select();
     
+    //send CMD0
+    spi_sendData(CMD0, sizeof(CMD0));
 
-    return FAILED;
+    result_t res = sd_getResponse(&resp->data, sizeof(resp->data));
+    sd_deselect();
+    return res;
+}
+
+result_t sd_getVoltage(sd_Response3* resp)
+{
+	sd_Response1 response1;
+	
+	sd_select();
+	
+	//send CMD55
+	spi_sendData(CMD55, sizeof(CMD55));
+	
+	result_t res = sd_getResponse(&response1.data, sizeof(response1.data));
+	sd_deselect();
+	
+	if (res == FAILED)
+		return FAILED;
+		
+	SPDR = DUMMY_BYTE; //send dummy byte
+	while ( !(SPSR & (1<<SPIF)) ) //wait for communication end
+		;
+	
+	sd_select();
+	
+	//send ACMD41
+	spi_sendData(ACMD41, sizeof(ACMD41));
+	res = sd_getResponse(resp->data, sizeof(resp->data));
+	sd_deselect();
+	
+	return res;
 }
 
 result_t sd_init(void)
@@ -146,20 +252,34 @@ result_t sd_init(void)
     sd_powerOn();
     timer_delayMs(250);
     
-    sd_Response1 resp;
-    if (sd_goIdle(&resp) == FAILED) //send CMD0 -> go idle state and enable SPI mode
+    sd_Response1 resp1;
+    if (sd_goIdle(&resp1) == FAILED) //send CMD0 -> go idle state and enable SPI mode
     {
         sd_powerOff();
         return FAILED;
     }
 
-    if (resp.inIdle)
-        debug_puts("sd is in idle");
-    char str[8];
-    utoa(resp.data, str, 10);
-    debug_puts(str);
-
-    //sd voltage check
-    
-    return SUCCESS;
+	while (1)
+	{
+		debug_puts("Voltage check");
+		
+		//voltage and busy check
+		sd_Response3 resp3;
+		if (sd_getVoltage(&resp3) == FAILED)
+		{
+			sd_powerOff();
+			return FAILED;
+		}
+		
+		if (resp3.ocr.v27_36) //supply voltage fits
+			debug_puts("Supply voltage is in range");
+		else
+			debug_puts("Supply voltage is NOT in range");
+			
+		if (resp3.ocr.powerUpStatus) //sd card is ready
+			return SUCCESS;
+		
+		debug_puts("SD Card is busy");	
+		timer_delayMs(250);
+	}
 }
