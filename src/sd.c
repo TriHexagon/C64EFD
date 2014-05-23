@@ -50,6 +50,29 @@ typedef union sd_Response1
     };
 } sd_Response1;
 
+typedef union sd_Response1_DataToken
+{
+    u8 data[2];
+        
+    struct
+    {
+        unsigned int inIdle : 1;
+        unsigned int eraseReset : 1;
+        unsigned int illegalCmd : 1;
+        unsigned int crcError : 1;
+        unsigned int eraseSequError : 1;
+        unsigned int addressError : 1;
+        unsigned int paramError : 1;
+        unsigned int startBit : 1;
+        
+        //DataToken
+        unsigned int b0 : 1;
+        unsigned int status : 3;
+        unsigned int b4 : 1;
+        unsigned int x : 3;
+    };
+} sd_Response1_DataToken;
+
 typedef union sd_Response3
 {
 	u8 data[5]; //40 bit width
@@ -62,8 +85,11 @@ typedef union sd_Response3
 } sd_Response3;
 
 const u8 CMD0[]   = { 0x40, 0x00, 0x00, 0x00, 0x00, 0x95 };
-const u8 CMD55[]  = { 0x77, 0x00, 0x00, 0xAA, 0xAA, 0x01 };
-const u8 ACMD41[] = { 0x69, 0x00, 0xFF, 0x80, 0x00, 0x01 };
+const u8 CMD55[]  = { 0x77, 0x00, 0x00, 0x00, 0x00, 0x01 };
+const u8 ACMD41[] = { 0x69, 0x00, 0x00, 0x00, 0x00, 0x01 };
+const u8 CMD16[]  = { 0x50, 0x00, 0x00, 0x02, 0x00, 0x01 };
+const u8 CMD17_BEGIN[] = { 0x51 };
+const u8 CMD17_END[] = { 0x01 };
 
 static void sd_powerOn(void)
 {
@@ -99,6 +125,16 @@ void sd_sendByte(u8 data)
         ;
 
     sd_deselect();
+}
+
+u8 spi_receiveByte(void)
+{
+	SPDR = DUMMY_BYTE;
+        
+    while ( !(SPSR & (1<<SPIF)) )
+        ;
+    
+    return SPDR;
 }
 
 void spi_sendData(const void* inData, size_t size)
@@ -237,6 +273,60 @@ result_t sd_getVoltage(sd_Response3* resp)
 	return res;
 }
 
+result_t sd_setBlockSize(sd_Response1* resp)
+{
+	sd_select();
+	
+	//send CMD16 with block size of 512 bytes
+	spi_sendData(CMD16, sizeof(CMD16));
+	result_t res = sd_getResponse(resp, sizeof(resp));
+	sd_deselect();
+	
+	return res;
+}
+
+result_t sd_readBlock(void* buffer, size_t size, u32 address)
+{
+	u8* buf = buffer;
+	sd_Response1_DataToken resp;
+	//TODO: check arguments
+	
+	sd_select();
+	spi_sendData(CMD17_BEGIN, sizeof(CMD17_BEGIN)); //CMD17 begin
+	spi_sendData(&address, sizeof(address)); //CMD17 address argument
+	spi_sendData(CMD17_END, sizeof(CMD17_END)); //CMD17 end
+	
+	result_t res = sd_getResponse(resp.data, sizeof(resp));
+	if (res == FAILED)
+	{
+		sd_deselect();
+		return FAILED;
+	}
+		
+	for (u8 i=0; i<10; i++)
+	{
+		if (spi_receiveByte() == 0xFE) //start block token
+		{
+			//get data block from sd
+			for (size_t u=0; u<size; u++)
+			{
+				*buf = spi_receiveByte();
+				buf++;
+			}
+			
+			//crc16
+			spi_receiveByte();
+			spi_receiveByte();
+			
+			sd_deselect();
+			return SUCCESS;
+		}
+	}
+	
+	sd_deselect();
+	return FAILED;
+}
+
 result_t sd_init(void)
 {
     //init io
@@ -259,6 +349,7 @@ result_t sd_init(void)
         return FAILED;
     }
 
+	//initialization wait loop
 	while (1)
 	{
 		debug_puts("Voltage check");
@@ -276,10 +367,13 @@ result_t sd_init(void)
 		else
 			debug_puts("Supply voltage is NOT in range");
 			
-		if (resp3.ocr.powerUpStatus) //sd card is ready
-			return SUCCESS;
+		if (!resp3.r1.inIdle) //sd card is ready
+			break;
 		
 		debug_puts("SD Card is busy");	
 		timer_delayMs(250);
 	}
+	
+	//set block size to 512 bytes
+	return sd_setBlockSize(&resp1);
 }

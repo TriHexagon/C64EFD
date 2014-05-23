@@ -9,3 +9,6 @@
 
 # geany
 *.geany
+
+# sigrok dir
+sigrok
