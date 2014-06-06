@@ -25,13 +25,23 @@ int main(void)
     
     debug_puts("sd is detected!");
     
-    if (sd_readBlock(buffer, 512, 0) == SUCCESS)
+    for (size_t u=0; u<10; u++)
     {
-		debug_puts("read block success!");
-		for (size_t i=0; i<sizeof(buffer); i++)
-			debug_putc(buffer[i]);
+		if (sd_readBlock(buffer, 512, u*512) == SUCCESS)
+		{
+			debug_puts("read block success!");
+			for (size_t i=0; i<sizeof(buffer); i++)
+				debug_putc(buffer[i]);
 			
-		debug_puts("\0\0");
+			debug_puts("\0\0");
+		}
+		else
+		{
+			debug_puts("read block failed!");
+			char str[5];
+			utoa(u, str, 10);
+			debug_puts(str);
+		}
 	}
 
     while (1)

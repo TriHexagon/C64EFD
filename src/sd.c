@@ -374,6 +374,17 @@ result_t sd_init(void)
 		timer_delayMs(250);
 	}
 	
+	//here: card has completed initialization
+	
+	//raise SPI frequency to f/2 (16 MHz / 2 = 8 MHz)
+	//SPCR &= ~( (1<<SPR1) | (1<<SPR0) );
+	//SPSR |= (1<<SPI2X);
+	
 	//set block size to 512 bytes
-	return sd_setBlockSize(&resp1);
+	result_t res = sd_setBlockSize(&resp1);
+	if (res == SUCCESS)
+		return SUCCESS;
+	
+	sd_powerOff();
+	return FAILED;
 }
