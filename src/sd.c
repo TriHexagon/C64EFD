@@ -33,6 +33,50 @@ typedef union sd_OCR
 	};
 } sd_OCR;
 
+typedef union sd_CSD
+{
+	u8 data[16];
+	
+	struct
+	{
+		unsigned int notUsed : 1;
+		unsigned int crc : 7;
+		unsigned int reserved0 : 2;
+		unsigned int fileFormat : 2;
+		unsigned int tmpWriteProtection : 1;
+		unsigned int permWriteProtection : 1;
+		unsigned int copyFlag : 1;
+		unsigned int fileFormatGroup : 1;
+		unsigned int reserved1 : 5;
+		unsigned int writeBlockPartial : 1;
+		unsigned int maxWriteBlockLen : 4;
+		unsigned int writeSpeedFactor : 3;
+		unsigned int reserved2 : 2;
+		unsigned int writeProtectGroupEnable : 1;
+		unsigned int writeProtectGroupSize : 7;
+		unsigned int eraseSectorSize : 7;
+		unsigned int eraseSingleBlockEnable : 1;
+		unsigned int deviceSizeMultipler : 3;
+		unsigned int maxWriteVddCurrent : 3;
+		unsigned int minWriteVddCurrent : 3;
+		unsigned int maxReadVddCurrent : 3;
+		unsigned int minReadVddCurrent : 3;
+		unsigned int deviceSize : 12;
+		unsigned int reserved3 : 2;
+		unsigned int dsrImplemented : 1;
+		unsigned int readBlockMisalignment : 1;
+		unsigned int writeBlockMisalignment : 1;
+		unsigned int readBlockPartial : 1;
+		unsigned int readBlockLen : 4;
+		unsigned int cardCommandClasses : 12;
+		unsigned int maxTranSpeed : 8;
+		unsigned int NSAC : 8;
+		unsigned int TAAC : 8;
+		unsigned int reserved4 : 6;
+		unsigned int csdStruct : 2;
+	};
+} sd_CSD;
+
 typedef union sd_Response1
 {
     u8 data;
@@ -73,6 +117,19 @@ typedef union sd_Response1_DataToken
     };
 } sd_Response1_DataToken;
 
+typedef union sd_Response2
+{
+	u8 data[17];
+	
+	struct
+	{
+		sd_CSD csd;
+		unsigned int reserved0 : 6;
+		unsigned int transBit : 1;
+		unsigned int startBit : 1;
+	};
+} sd_Response2;
+
 typedef union sd_Response3
 {
 	u8 data[5]; //40 bit width
@@ -88,8 +145,12 @@ const u8 CMD0[]   = { 0x40, 0x00, 0x00, 0x00, 0x00, 0x95 };
 const u8 CMD55[]  = { 0x77, 0x00, 0x00, 0x00, 0x00, 0x01 };
 const u8 ACMD41[] = { 0x69, 0x00, 0x00, 0x00, 0x00, 0x01 };
 const u8 CMD16[]  = { 0x50, 0x00, 0x00, 0x02, 0x00, 0x01 };
+const u8 CMD9[]   = { 0x49, 0x00, 0x00, 0x00, 0x00, 0x01 };
 const u8 CMD17_BEGIN[] = { 0x51 };
 const u8 CMD17_END[] = { 0x01 };
+
+sd_CSD sd_csd;
+u16 readBlockWait8Cycles;
 
 static void sd_powerOn(void)
 {
@@ -279,7 +340,19 @@ result_t sd_setBlockSize(sd_Response1* resp)
 	
 	//send CMD16 with block size of 512 bytes
 	spi_sendData(CMD16, sizeof(CMD16));
-	result_t res = sd_getResponse(resp, sizeof(resp));
+	result_t res = sd_getResponse(resp, sizeof(*resp));
+	sd_deselect();
+	
+	return res;
+}
+
+result_t sd_getCSD(sd_Response2* resp)
+{
+	sd_select();
+	
+	//send CMD9
+	spi_sendData(CMD9, sizeof(CMD9));
+	result_t res = sd_getResponse(resp, sizeof(*resp));
 	sd_deselect();
 	
 	return res;
@@ -303,7 +376,7 @@ result_t sd_readBlock(void* buffer, size_t size, u32 address)
 		return FAILED;
 	}
 		
-	for (u8 i=0; i<10; i++)
+	for (u16 i=0; i<readBlockWait8Cycles; i++)
 	{
 		if (spi_receiveByte() == 0xFE) //start block token
 		{
@@ -314,7 +387,7 @@ result_t sd_readBlock(void* buffer, size_t size, u32 address)
 				buf++;
 			}
 			
-			//crc16
+			//ingore the two crc16 bytes
 			spi_receiveByte();
 			spi_receiveByte();
 			
@@ -329,6 +402,8 @@ result_t sd_readBlock(void* buffer, size_t size, u32 address)
 
 result_t sd_init(void)
 {
+	result_t res;
+	
     //init io
     SD_DDR |= (1<<SD_PIN_POWER) | (1<<SD_PIN_CS) | (1<<SD_PIN_CLK) | (1<<SD_PIN_DI); //set pins to output
     sd_powerOff();
@@ -375,13 +450,37 @@ result_t sd_init(void)
 	}
 	
 	//here: card has completed initialization
+	//read CSD register
+	sd_Response2 resp2;
+	res = sd_getCSD(&resp2);
+	if (res == FAILED)
+	{
+		sd_powerOff();
+		return FAILED;
+	}
+	sd_csd = resp2.csd;
 	
-	//raise SPI frequency to f/2 (16 MHz / 2 = 8 MHz)
+	char str[5];
+	u8 num = sd_csd.TAAC;
+	utoa(num, str, 10);
+	debug_puts(str);
+	
+	num = sd_csd.NSAC;
+	utoa(num, str, 10);
+	debug_puts(str);
+	
+	//calculate NAC cycles (max wait cycles for data block read response)
+	readBlockWait8Cycles = 5688;//(80 (1/250000UL)
+	
+	//raise SPI frequency to f/16 (16 MHz / 16 = 1 MHz)
 	//SPCR &= ~( (1<<SPR1) | (1<<SPR0) );
 	//SPSR |= (1<<SPI2X);
+	SPCR |= (1<<SPR0);
+	SPCR &= ~(1<<SPR1);
+	SPSR &= ~(1<<SPI2X);
 	
 	//set block size to 512 bytes
-	result_t res = sd_setBlockSize(&resp1);
+	res = sd_setBlockSize(&resp1);
 	if (res == SUCCESS)
 		return SUCCESS;
 	
